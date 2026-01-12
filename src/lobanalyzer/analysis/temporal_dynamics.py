@@ -424,11 +424,11 @@ def compute_predictive_decay(
     This answers: "How quickly does signal information become stale?"
     
     Args:
-        signal: (N,) signal values (sample-level)
-        labels: (M,) label values (may be shorter due to alignment)
+        signal: (N,) signal values - can be sample-level or aligned
+        labels: (M,) label values
         lags: List of lags to test (default: [0, 1, 2, 5, 10, 20, 50, 100])
-        window_size: Samples per sequence window (must match data export)
-        stride: Samples between sequence starts (must match data export)
+        window_size: Samples per sequence window (only for sample-level data)
+        stride: Samples between sequence starts (only for sample-level data)
     
     Returns:
         correlations: Correlation at each lag
@@ -437,14 +437,17 @@ def compute_predictive_decay(
         max_corr: Maximum correlation
     
     Note:
-        Alignment formula: label[i] corresponds to signal at (i * stride + window_size - 1)
-        With lag, we use signal at (i * stride + window_size - 1 - lag)
+        Auto-detects alignment: if len(signal) == len(labels), assumes aligned.
+        For sample-level: label[i] corresponds to signal at (i * stride + window_size - 1)
     """
     if lags is None:
         lags = [0, 1, 2, 5, 10, 20, 50, 100]
     
     n_signal = len(signal)
     n_labels = len(labels)
+    
+    # Auto-detect if data is already aligned
+    is_aligned = (n_signal == n_labels)
     
     correlations = []
     
@@ -454,7 +457,13 @@ def compute_predictive_decay(
         valid_signals = []
         
         for i in range(n_labels):
-            signal_idx = i * stride + window_size - 1 - lag
+            if is_aligned:
+                # Data is aligned: signal[i] corresponds to labels[i]
+                signal_idx = i - lag  # Look back 'lag' positions
+            else:
+                # Sample-level data: use alignment formula
+                signal_idx = i * stride + window_size - 1 - lag
+                
             if 0 <= signal_idx < n_signal:
                 valid_labels.append(labels[i])
                 valid_signals.append(signal[signal_idx])
@@ -553,14 +562,17 @@ def compute_level_vs_change(
     Compare predictive power of signal level vs signal change.
     
     Args:
-        features: (N, F) feature array (sample-level)
+        features: (N, F) feature array - can be sample-level or aligned
         labels: (M,) label array
         signal_index: Which signal to analyze
-        window_size: Samples per sequence window
-        stride: Samples between sequences
+        window_size: Samples per sequence window (only for sample-level)
+        stride: Samples between sequences (only for sample-level)
     
     Returns:
         LevelVsChangeAnalysis comparing level vs change
+    
+    Note:
+        Auto-detects alignment: if features.shape[0] == len(labels), assumes aligned.
     """
     from sklearn.metrics import roc_auc_score
     
@@ -568,7 +580,11 @@ def compute_level_vs_change(
     info = signal_info.get(signal_index, {'name': f'signal_{signal_index}'})
     signal = features[:, signal_index]
     
+    n_features = len(signal)
     n_labels = len(labels)
+    
+    # Auto-detect if data is already aligned
+    is_aligned = (n_features == n_labels)
     
     # Extract aligned signal levels (at end of each window)
     levels = []
@@ -576,8 +592,15 @@ def compute_level_vs_change(
     valid_labels = []
     
     for i in range(n_labels):
-        end_idx = i * stride + window_size - 1
-        start_idx = i * stride
+        if is_aligned:
+            # Data is aligned: features[i] corresponds to labels[i]
+            # For change, look back a fixed window (e.g., 10 samples)
+            end_idx = i
+            start_idx = max(0, i - 10)  # Use 10-sample lookback for change
+        else:
+            # Sample-level data: use alignment formula
+            end_idx = i * stride + window_size - 1
+            start_idx = i * stride
         
         if end_idx >= len(signal) or start_idx < 0:
             continue

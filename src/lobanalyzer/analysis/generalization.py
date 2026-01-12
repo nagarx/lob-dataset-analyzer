@@ -201,7 +201,17 @@ def align_features_for_day(
     window_size: int = WINDOW_SIZE,
     stride: int = STRIDE,
 ) -> np.ndarray:
-    """Align features with labels for a single day."""
+    """
+    Align features with labels for a single day.
+    
+    Auto-detects if data is already aligned (features.shape[0] == n_labels).
+    """
+    # Check if already aligned
+    if features.shape[0] == n_labels:
+        # Data is already aligned, return as-is
+        return features
+    
+    # Sample-level data: apply alignment formula
     aligned = np.zeros((n_labels, features.shape[1]))
     
     for i in range(n_labels):
