@@ -170,11 +170,18 @@ def compute_day_statistics(days: List[Dict]) -> List[DayStatistics]:
     
     for day in days:
         labels = day['labels']
-        n_labels = len(labels)
         
-        up_pct = 100 * (labels == LABEL_UP).mean()
-        down_pct = 100 * (labels == LABEL_DOWN).mean()
-        stable_pct = 100 * (labels == LABEL_STABLE).mean()
+        # Handle multi-horizon labels: use first horizon
+        if labels.ndim == 2:
+            labels_1d = labels[:, 0]
+        else:
+            labels_1d = labels
+        
+        n_labels = len(labels_1d)
+        
+        up_pct = 100 * (labels_1d == LABEL_UP).mean()
+        down_pct = 100 * (labels_1d == LABEL_DOWN).mean()
+        stable_pct = 100 * (labels_1d == LABEL_STABLE).mean()
         
         results.append(DayStatistics(
             date=day['date'],
@@ -242,8 +249,14 @@ def compute_signal_day_stats(
             features = day['features']
             labels = day['labels']
             
+            # Handle multi-horizon labels: use first horizon
+            if labels.ndim == 2:
+                labels_1d = labels[:, 0]
+            else:
+                labels_1d = labels
+            
             # Align features with labels
-            aligned = align_features_for_day(features, len(labels), window_size, stride)
+            aligned = align_features_for_day(features, len(labels_1d), window_size, stride)
             signal = aligned[:, idx]
             
             # Compute statistics
@@ -252,8 +265,8 @@ def compute_signal_day_stats(
             stds.append(float(np.std(signal)))
             
             # Correlation with labels
-            if len(labels) > 10 and np.std(signal) > 1e-10:
-                corr, _ = pearsonr(signal, labels)
+            if len(labels_1d) > 10 and np.std(signal) > 1e-10:
+                corr, _ = pearsonr(signal, labels_1d)
                 correlations.append(float(corr) if np.isfinite(corr) else 0.0)
             else:
                 correlations.append(0.0)
@@ -333,20 +346,30 @@ def walk_forward_validation(
         train_labels_list = []
         
         for day in train_days_data:
-            aligned = align_features_for_day(day['features'], len(day['labels']), window_size, stride)
+            day_labels = day['labels']
+            # Handle multi-horizon labels: use first horizon
+            if day_labels.ndim == 2:
+                day_labels = day_labels[:, 0]
+            aligned = align_features_for_day(day['features'], len(day_labels), window_size, stride)
             train_features_list.append(aligned)
-            train_labels_list.append(day['labels'])
+            train_labels_list.append(day_labels)
         
         train_features = np.vstack(train_features_list)
         train_labels = np.concatenate(train_labels_list)
         
         # Test data
+        test_labels_raw = test_day_data['labels']
+        # Handle multi-horizon labels: use first horizon
+        if test_labels_raw.ndim == 2:
+            test_labels = test_labels_raw[:, 0]
+        else:
+            test_labels = test_labels_raw
+            
         test_aligned = align_features_for_day(
             test_day_data['features'],
-            len(test_day_data['labels']),
+            len(test_labels),
             window_size, stride
         )
-        test_labels = test_day_data['labels']
         
         # Compute signal correlations on test day
         signal_correlations = {}
